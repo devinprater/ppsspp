@@ -27,6 +27,9 @@
 #include "Common/Serialize/SerializeFuncs.h"
 #include "Common/System/Request.h"
 #include "Common/Serialize/Serializer.h"
+#if PPSSPP_PLATFORM(ANDROID)
+#include "Common/UI/Accessibility.h"
+#endif
 
 #include "Core/Dialog/PSPOskDialog.h"
 #include "Core/Util/PPGeDraw.h"
@@ -891,7 +894,13 @@ int PSPOskDialog::Update(int animSpeed) {
 	// Windows: Fall back to the OSK/continue normally if we're in fullscreen.
 	// The dialog box doesn't work right if in fullscreen.
 	if (System_GetPropertyBool(SYSPROP_HAS_KEYBOARD)) {
-		if (g_Config.bBypassOSKWithKeyboard && !g_Config.bFullScreen)
+		bool useNativeKeyboard = g_Config.bBypassOSKWithKeyboard && !g_Config.bFullScreen;
+#if PPSSPP_PLATFORM(ANDROID)
+		// The PSP OSK is controller-oriented. Use Android's accessible EditText dialog
+		// whenever touch exploration is active, including in fullscreen.
+		useNativeKeyboard = useNativeKeyboard || UI::IsAccessibilityEnabled();
+#endif
+		if (useNativeKeyboard)
 			return NativeKeyboard();
 	}
 #endif
