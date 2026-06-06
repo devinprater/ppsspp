@@ -134,6 +134,16 @@ static const char *AccessibilityScrollDirectionName(UIAccessibilityScrollDirecti
 	}
 }
 
+static UIAccessibilityScrollDirection FingerDirectionFromAccessibilityScrollDirection(UIAccessibilityScrollDirection direction) {
+	switch (direction) {
+	case UIAccessibilityScrollDirectionRight: return UIAccessibilityScrollDirectionLeft;
+	case UIAccessibilityScrollDirectionLeft: return UIAccessibilityScrollDirectionRight;
+	case UIAccessibilityScrollDirectionUp: return UIAccessibilityScrollDirectionDown;
+	case UIAccessibilityScrollDirectionDown: return UIAccessibilityScrollDirectionUp;
+	default: return direction;
+	}
+}
+
 static void TapAccessibilityFaceButton(UIAccessibilityScrollDirection direction, InputKeyCode keyCode, const char *pspButton) {
 	NSLog(@"PPSSPPAccessibility action Face buttons direction=%s key=%d psp=%s",
 		AccessibilityScrollDirectionName(direction), (int)keyCode, pspButton);
@@ -554,9 +564,10 @@ static BOOL HasExternalGameController() {
 }
 
 - (BOOL)scrollElement:(PPSSPPAccessibilityElement *)element direction:(UIAccessibilityScrollDirection)direction {
+	const UIAccessibilityScrollDirection fingerDirection = FingerDirectionFromAccessibilityScrollDirection(direction);
 	switch (element.action) {
 	case PPSSPPAccessibilityActionDPad:
-		switch (direction) {
+		switch (fingerDirection) {
 		case UIAccessibilityScrollDirectionLeft: TapKey(NKCODE_DPAD_LEFT, DEVICE_ID_PAD_0); return YES;
 		case UIAccessibilityScrollDirectionRight: TapKey(NKCODE_DPAD_RIGHT, DEVICE_ID_PAD_0); return YES;
 		case UIAccessibilityScrollDirectionUp: TapKey(NKCODE_DPAD_UP, DEVICE_ID_PAD_0); return YES;
@@ -564,7 +575,7 @@ static BOOL HasExternalGameController() {
 		default: return NO;
 		}
 	case PPSSPPAccessibilityActionLeftStick:
-		switch (direction) {
+		switch (fingerDirection) {
 		case UIAccessibilityScrollDirectionLeft: TapAxis(JOYSTICK_AXIS_X, -1.0f); return YES;
 		case UIAccessibilityScrollDirectionRight: TapAxis(JOYSTICK_AXIS_X, 1.0f); return YES;
 		case UIAccessibilityScrollDirectionUp: TapAxis(JOYSTICK_AXIS_Y, -1.0f); return YES;
@@ -572,7 +583,7 @@ static BOOL HasExternalGameController() {
 		default: return NO;
 		}
 	case PPSSPPAccessibilityActionRightStick:
-		switch (direction) {
+		switch (fingerDirection) {
 		case UIAccessibilityScrollDirectionLeft: TapAxis(JOYSTICK_AXIS_Z, -1.0f); return YES;
 		case UIAccessibilityScrollDirectionRight: TapAxis(JOYSTICK_AXIS_Z, 1.0f); return YES;
 		case UIAccessibilityScrollDirectionUp: TapAxis(JOYSTICK_AXIS_RZ, -1.0f); return YES;
@@ -580,15 +591,15 @@ static BOOL HasExternalGameController() {
 		default: return NO;
 		}
 	case PPSSPPAccessibilityActionFaceButtons:
-		switch (direction) {
-		case UIAccessibilityScrollDirectionLeft: TapAccessibilityFaceButton(direction, NKCODE_BUTTON_4, "Square"); return YES;
-		case UIAccessibilityScrollDirectionRight: TapAccessibilityFaceButton(direction, NKCODE_BUTTON_3, "Circle"); return YES;
-		case UIAccessibilityScrollDirectionUp: TapAccessibilityFaceButton(direction, NKCODE_BUTTON_1, "Triangle"); return YES;
-		case UIAccessibilityScrollDirectionDown: TapAccessibilityFaceButton(direction, NKCODE_BUTTON_2, "Cross"); return YES;
+		switch (fingerDirection) {
+		case UIAccessibilityScrollDirectionLeft: TapAccessibilityFaceButton(fingerDirection, NKCODE_BUTTON_4, "Square"); return YES;
+		case UIAccessibilityScrollDirectionRight: TapAccessibilityFaceButton(fingerDirection, NKCODE_BUTTON_3, "Circle"); return YES;
+		case UIAccessibilityScrollDirectionUp: TapAccessibilityFaceButton(fingerDirection, NKCODE_BUTTON_1, "Triangle"); return YES;
+		case UIAccessibilityScrollDirectionDown: TapAccessibilityFaceButton(fingerDirection, NKCODE_BUTTON_2, "Cross"); return YES;
 		default: return NO;
 		}
 	case PPSSPPAccessibilityActionShoulders:
-		switch (direction) {
+		switch (fingerDirection) {
 		case UIAccessibilityScrollDirectionLeft:
 			_lastShoulderKey = NKCODE_BUTTON_L1;
 			if (_heldShoulderKey != NKCODE_BUTTON_L1) {
