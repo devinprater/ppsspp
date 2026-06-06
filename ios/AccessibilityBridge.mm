@@ -1,5 +1,7 @@
 #import "ios/AccessibilityBridge.h"
 
+#import <GameController/GameController.h>
+
 #include <cstdint>
 #include <vector>
 
@@ -13,6 +15,7 @@
 @class PPSSPPAccessibilityBridge;
 
 typedef NS_ENUM(NSInteger, PPSSPPAccessibilityAction) {
+	PPSSPPAccessibilityActionNone,
 	PPSSPPAccessibilityActionActivateUI,
 	PPSSPPAccessibilityActionDPad,
 	PPSSPPAccessibilityActionLeftStick,
@@ -26,6 +29,7 @@ typedef NS_ENUM(NSInteger, PPSSPPAccessibilityAction) {
 @interface PPSSPPAccessibilityElement : UIAccessibilityElement
 @property(nonatomic, weak) PPSSPPAccessibilityBridge *bridge;
 @property(nonatomic) PPSSPPAccessibilityAction action;
+@property(nonatomic) int accessibilityId;
 @property(nonatomic) CGRect dpFrame;
 @end
 
@@ -35,6 +39,7 @@ typedef NS_ENUM(NSInteger, PPSSPPAccessibilityAction) {
 	NSTimer *_refreshTimer;
 	NSString *_lastSignature;
 	uint64_t _lastSnapshotVersion;
+	uint64_t _lastScreenVersion;
 	int _lastUIState;
 	CGRect _lastViewBounds;
 	float _lastDPXRes;
@@ -43,10 +48,15 @@ typedef NS_ENUM(NSInteger, PPSSPPAccessibilityAction) {
 	InputKeyCode _heldShoulderKey;
 	BOOL _refreshQueued;
 	BOOL _hasBuiltElements;
+	BOOL _gameViewportFocused;
+	BOOL _lastExternalControllerConnected;
+	NSTimeInterval _lastGameViewportDescriptionRefresh;
 }
 - (BOOL)activateElement:(PPSSPPAccessibilityElement *)element;
 - (BOOL)scrollElement:(PPSSPPAccessibilityElement *)element direction:(UIAccessibilityScrollDirection)direction;
 - (void)adjustElement:(PPSSPPAccessibilityElement *)element increment:(BOOL)increment;
+- (void)gameViewportFocusChanged:(BOOL)focused;
+- (void)refreshFocusedGameViewportDescription;
 - (void)logRefreshWithReason:(NSString *)reason elementCount:(NSUInteger)elementCount snapshotVersion:(uint64_t)snapshotVersion;
 @end
 
@@ -66,6 +76,18 @@ typedef NS_ENUM(NSInteger, PPSSPPAccessibilityAction) {
 
 - (void)accessibilityDecrement {
 	[self.bridge adjustElement:self increment:NO];
+}
+
+- (void)accessibilityElementDidBecomeFocused {
+	if (self.action == PPSSPPAccessibilityActionNone) {
+		[self.bridge gameViewportFocusChanged:YES];
+	}
+}
+
+- (void)accessibilityElementDidLoseFocus {
+	if (self.action == PPSSPPAccessibilityActionNone) {
+		[self.bridge gameViewportFocusChanged:NO];
+	}
 }
 
 @end
@@ -100,13 +122,36 @@ static void TapAxis(InputAxis axisId, float value) {
 	});
 }
 
+static const char *AccessibilityScrollDirectionName(UIAccessibilityScrollDirection direction) {
+	switch (direction) {
+	case UIAccessibilityScrollDirectionRight: return "Right";
+	case UIAccessibilityScrollDirectionLeft: return "Left";
+	case UIAccessibilityScrollDirectionUp: return "Up";
+	case UIAccessibilityScrollDirectionDown: return "Down";
+	case UIAccessibilityScrollDirectionNext: return "Next";
+	case UIAccessibilityScrollDirectionPrevious: return "Previous";
+	default: return "Unknown";
+	}
+}
+
+static void TapAccessibilityFaceButton(UIAccessibilityScrollDirection direction, InputKeyCode keyCode, const char *pspButton) {
+	NSLog(@"PPSSPPAccessibility action Face buttons direction=%s key=%d psp=%s",
+		AccessibilityScrollDirectionName(direction), (int)keyCode, pspButton);
+	NOTICE_LOG(Log::UI, "PPSSPPAccessibility action Face buttons direction=%s key=%d psp=%s",
+		AccessibilityScrollDirectionName(direction), (int)keyCode, pspButton);
+	TapKey(keyCode, DEVICE_ID_PAD_0);
+}
+
 static UIAccessibilityTraits TraitsForRole(UI::AccessibilityRole role) {
 	switch (role) {
 	case UI::AccessibilityRole::Button:
 	case UI::AccessibilityRole::Choice:
 	case UI::AccessibilityRole::GamepadControl:
 		return UIAccessibilityTraitButton;
+	case UI::AccessibilityRole::Tab:
+		return UIAccessibilityTraitButton | UIAccessibilityTraitTabBar;
 	case UI::AccessibilityRole::Checkbox:
+	case UI::AccessibilityRole::Radio:
 		return UIAccessibilityTraitButton;
 	case UI::AccessibilityRole::Slider:
 		return UIAccessibilityTraitAdjustable;
@@ -116,10 +161,27 @@ static UIAccessibilityTraits TraitsForRole(UI::AccessibilityRole role) {
 		return UIAccessibilityTraitUpdatesFrequently;
 	case UI::AccessibilityRole::Heading:
 		return UIAccessibilityTraitHeader;
+	case UI::AccessibilityRole::Image:
+		return UIAccessibilityTraitImage;
 	case UI::AccessibilityRole::StaticText:
 	default:
 		return UIAccessibilityTraitStaticText;
 	}
+}
+
+static UIAccessibilityTraits TraitsForInfo(const UI::AccessibilityElementInfo &info) {
+	UIAccessibilityTraits traits = TraitsForRole(info.role);
+	if (!info.enabled) {
+		traits |= UIAccessibilityTraitNotEnabled;
+	}
+	if (info.checked || info.selected) {
+		traits |= UIAccessibilityTraitSelected;
+	}
+	return traits;
+}
+
+static BOOL HasExternalGameController() {
+	return [GCController controllers].count > 0;
 }
 
 @implementation PPSSPPAccessibilityBridge
@@ -130,16 +192,22 @@ static UIAccessibilityTraits TraitsForRole(UI::AccessibilityRole role) {
 		_view = view;
 		_elements = [[NSMutableArray alloc] init];
 		_lastSnapshotVersion = 0;
+		_lastScreenVersion = 0;
 		_lastUIState = -1;
 		_lastViewBounds = CGRectNull;
 		_lastDPXRes = 0.0f;
 		_lastDPYRes = 0.0f;
 		_lastShoulderKey = NKCODE_UNKNOWN;
 		_heldShoulderKey = NKCODE_UNKNOWN;
+		_gameViewportFocused = NO;
+		_lastExternalControllerConnected = NO;
+		_lastGameViewportDescriptionRefresh = 0.0;
 		view.isAccessibilityElement = NO;
 		view.accessibilityElements = _elements;
+		UI::SetAccessibilityEnabled(UIAccessibilityIsVoiceOverRunning());
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(voiceOverStatusChanged:) name:UIAccessibilityVoiceOverStatusDidChangeNotification object:nil];
-		_refreshTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(periodicRefresh:) userInfo:nil repeats:YES];
+		_refreshTimer = [NSTimer timerWithTimeInterval:0.05 target:self selector:@selector(periodicRefresh:) userInfo:nil repeats:YES];
+		[[NSRunLoop mainRunLoop] addTimer:_refreshTimer forMode:NSRunLoopCommonModes];
 	}
 	return self;
 }
@@ -148,15 +216,18 @@ static UIAccessibilityTraits TraitsForRole(UI::AccessibilityRole role) {
 	[_refreshTimer invalidate];
 	[[NSNotificationCenter defaultCenter] removeObserver:self];
 	[self releaseHeldShoulder];
+	UI::SetAccessibilityEnabled(false);
 }
 
 - (void)voiceOverStatusChanged:(NSNotification *)notification {
+	UI::SetAccessibilityEnabled(UIAccessibilityIsVoiceOverRunning());
 	[self scheduleRefresh];
 }
 
 - (void)periodicRefresh:(NSTimer *)timer {
 	if (UIAccessibilityIsVoiceOverRunning()) {
 		[self scheduleRefresh];
+		[self refreshFocusedGameViewportDescription];
 	}
 }
 
@@ -211,32 +282,76 @@ static UIAccessibilityTraits TraitsForRole(UI::AccessibilityRole role) {
 	const CGFloat w = (CGFloat)g_display.dp_xres;
 	const CGFloat h = (CGFloat)g_display.dp_yres;
 	const CGFloat thirdW = w / 3.0f;
-	const CGFloat halfH = h / 2.0f;
-	const ControlArea controls[] = {
-		{ @"D-pad", PPSSPPAccessibilityActionDPad, CGRectMake(0, halfH, thirdW, halfH) },
-		{ @"Left stick", PPSSPPAccessibilityActionLeftStick, CGRectMake(0, 0, thirdW, halfH) },
-		{ @"Right stick", PPSSPPAccessibilityActionRightStick, CGRectMake(thirdW * 2.0f, 0, thirdW, halfH) },
-		{ @"Face buttons", PPSSPPAccessibilityActionFaceButtons, CGRectMake(thirdW * 2.0f, halfH, thirdW, halfH) },
-		{ @"Shoulder buttons", PPSSPPAccessibilityActionShoulders, CGRectMake(thirdW, 0, thirdW, h * 0.25f) },
-		{ @"Select", PPSSPPAccessibilityActionSelect, CGRectMake(thirdW, h * 0.72f, thirdW * 0.5f, h * 0.16f) },
-		{ @"Emulator menu", PPSSPPAccessibilityActionEmulatorMenu, CGRectMake(thirdW * 1.5f, h * 0.72f, thirdW * 0.5f, h * 0.16f) },
-	};
+	const CGFloat viewportH = h * 0.62f;
+	const CGFloat controlTop = viewportH;
+	const CGFloat controlH = h - controlTop;
+	const CGFloat rowH = controlH / 3.0f;
+	const BOOL externalControllerConnected = HasExternalGameController();
 
-	for (const ControlArea &control : controls) {
-		Bounds bounds(control.dpFrame.origin.x, control.dpFrame.origin.y, control.dpFrame.size.width, control.dpFrame.size.height);
-		PPSSPPAccessibilityElement *element = [self makeElementWithLabel:control.label
-																	frame:[self uiFrameFromDPBounds:bounds]
-																  dpFrame:control.dpFrame
-																   action:control.action
-																   traits:UIAccessibilityTraitButton];
-		if (control.action == PPSSPPAccessibilityActionDPad ||
-			control.action == PPSSPPAccessibilityActionLeftStick ||
-			control.action == PPSSPPAccessibilityActionRightStick ||
-			control.action == PPSSPPAccessibilityActionFaceButtons ||
-			control.action == PPSSPPAccessibilityActionShoulders) {
-			element.accessibilityHint = @"Swipe up, down, left, or right.";
+	if (!externalControllerConnected) {
+		const ControlArea controls[] = {
+			{ @"D-pad", PPSSPPAccessibilityActionDPad, CGRectMake(0.0f, controlTop, thirdW, rowH * 2.0f) },
+			{ @"Left stick", PPSSPPAccessibilityActionLeftStick, CGRectMake(0.0f, controlTop + rowH * 2.0f, thirdW, rowH) },
+			{ @"Shoulder buttons", PPSSPPAccessibilityActionShoulders, CGRectMake(thirdW, controlTop, thirdW, rowH) },
+			{ @"Select", PPSSPPAccessibilityActionSelect, CGRectMake(thirdW, controlTop + rowH, thirdW * 0.5f, rowH) },
+			{ @"Emulator menu", PPSSPPAccessibilityActionEmulatorMenu, CGRectMake(thirdW * 1.5f, controlTop + rowH, thirdW * 0.5f, rowH) },
+			{ @"Right stick", PPSSPPAccessibilityActionRightStick, CGRectMake(thirdW, controlTop + rowH * 2.0f, thirdW, rowH) },
+			{ @"Face buttons", PPSSPPAccessibilityActionFaceButtons, CGRectMake(thirdW * 2.0f, controlTop, thirdW, controlH) },
+		};
+
+		for (const ControlArea &control : controls) {
+			Bounds bounds(control.dpFrame.origin.x, control.dpFrame.origin.y, control.dpFrame.size.width, control.dpFrame.size.height);
+			PPSSPPAccessibilityElement *element = [self makeElementWithLabel:control.label
+																		frame:[self uiFrameFromDPBounds:bounds]
+																	  dpFrame:control.dpFrame
+																	   action:control.action
+																	   traits:UIAccessibilityTraitButton];
+			if (control.action == PPSSPPAccessibilityActionDPad ||
+				control.action == PPSSPPAccessibilityActionLeftStick ||
+				control.action == PPSSPPAccessibilityActionRightStick ||
+				control.action == PPSSPPAccessibilityActionFaceButtons ||
+				control.action == PPSSPPAccessibilityActionShoulders) {
+				element.accessibilityHint = @"Swipe up, down, left, or right.";
+			}
+			[_elements addObject:element];
 		}
-		[_elements addObject:element];
+	}
+
+	const CGRect viewportFrame = externalControllerConnected ?
+		CGRectMake(0.0f, 0.0f, w, h) :
+		CGRectMake(0.0f, 0.0f, w, viewportH);
+	Bounds viewportBounds(viewportFrame.origin.x, viewportFrame.origin.y, viewportFrame.size.width, viewportFrame.size.height);
+	PPSSPPAccessibilityElement *viewport = [self makeElementWithLabel:@"Game viewport"
+																frame:[self uiFrameFromDPBounds:viewportBounds]
+															  dpFrame:viewportFrame
+															   action:PPSSPPAccessibilityActionNone
+															   traits:UIAccessibilityTraitImage | UIAccessibilityTraitUpdatesFrequently];
+	[_elements addObject:viewport];
+	NSLog(@"PPSSPPAccessibility ingame externalController=%d viewport=%@ elements=%lu",
+		externalControllerConnected, NSStringFromCGRect(viewportFrame), (unsigned long)_elements.count);
+}
+
+- (void)gameViewportFocusChanged:(BOOL)focused {
+	_gameViewportFocused = focused;
+	if (focused) {
+		_lastGameViewportDescriptionRefresh = 0.0;
+	}
+}
+
+- (void)refreshFocusedGameViewportDescription {
+	if (!_gameViewportFocused || GetUIState() != UISTATE_INGAME) {
+		return;
+	}
+	const NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+	if (now - _lastGameViewportDescriptionRefresh < 3.0) {
+		return;
+	}
+	for (PPSSPPAccessibilityElement *element in _elements) {
+		if (element.action == PPSSPPAccessibilityActionNone) {
+			_lastGameViewportDescriptionRefresh = now;
+			UIAccessibilityPostNotification(UIAccessibilityLayoutChangedNotification, element);
+			return;
+		}
 	}
 }
 
@@ -256,14 +371,17 @@ static UIAccessibilityTraits TraitsForRole(UI::AccessibilityRole role) {
 	const CGRect viewBounds = view.bounds;
 	const bool geometryChanged = !CGRectEqualToRect(_lastViewBounds, viewBounds) ||
 		_lastDPXRes != g_display.dp_xres || _lastDPYRes != g_display.dp_yres;
+	const BOOL externalControllerConnected = HasExternalGameController();
+	const BOOL controllerChanged = _hasBuiltElements && _lastExternalControllerConnected != externalControllerConnected;
 
 	if (uiState == UISTATE_INGAME) {
-		if (_hasBuiltElements && _lastUIState == uiState && !geometryChanged) {
+		if (_hasBuiltElements && _lastUIState == uiState && !geometryChanged && !controllerChanged) {
 			return;
 		}
 		NSMutableArray *newElements = [[NSMutableArray alloc] init];
 		NSMutableString *signature = [[NSMutableString alloc] init];
 		NSMutableArray *oldElements = _elements;
+		_gameViewportFocused = NO;
 		_elements = newElements;
 		[self addInGameControls];
 		[signature appendString:@"ingame"];
@@ -283,51 +401,70 @@ static UIAccessibilityTraits TraitsForRole(UI::AccessibilityRole role) {
 		_lastViewBounds = viewBounds;
 		_lastDPXRes = g_display.dp_xres;
 		_lastDPYRes = g_display.dp_yres;
+		_lastExternalControllerConnected = externalControllerConnected;
 		return;
 	}
 
 	[self releaseHeldShoulder];
 	const uint64_t snapshotVersion = UI::GetCachedAccessibilitySnapshotVersion();
-	if (_hasBuiltElements && _lastUIState == uiState && !geometryChanged && _lastSnapshotVersion == snapshotVersion) {
+	const uint64_t screenVersion = UI::GetCachedAccessibilityScreenVersion();
+	const BOOL screenChanged = _hasBuiltElements && _lastScreenVersion != screenVersion;
+	if (_hasBuiltElements && _lastUIState == uiState && !geometryChanged && _lastSnapshotVersion == snapshotVersion && !screenChanged) {
 		return;
 	}
-	NSMutableArray *newElements = [[NSMutableArray alloc] init];
-	NSMutableString *signature = [[NSMutableString alloc] init];
-	NSMutableArray *oldElements = _elements;
-	_elements = newElements;
+	std::vector<UI::AccessibilityElementInfo> snapshot;
 	if (g_display.dp_xres > 0 && g_display.dp_yres > 0) {
-		std::vector<UI::AccessibilityElementInfo> snapshot = UI::GetCachedAccessibilitySnapshot();
+		snapshot = UI::GetCachedAccessibilitySnapshot();
+	}
+	const BOOL canReuseElements = _hasBuiltElements && _lastUIState == uiState && _elements.count == snapshot.size();
+	if (canReuseElements) {
+		for (NSUInteger i = 0; i < snapshot.size(); ++i) {
+			const UI::AccessibilityElementInfo &info = snapshot[i];
+			NSString *label = [NSString stringWithUTF8String:info.label.c_str()];
+			CGRect frame = [self uiFrameFromDPBounds:info.bounds];
+			CGRect dpFrame = CGRectMake(info.bounds.x, info.bounds.y, info.bounds.w, info.bounds.h);
+			PPSSPPAccessibilityElement *element = [_elements objectAtIndex:i];
+			element.accessibilityId = info.id;
+			element.accessibilityLabel = label;
+			element.accessibilityValue = [NSString stringWithUTF8String:info.value.c_str()];
+			element.accessibilityFrame = frame;
+			element.dpFrame = dpFrame;
+			element.accessibilityTraits = TraitsForInfo(info);
+		}
+	} else {
+		NSMutableArray *newElements = [[NSMutableArray alloc] initWithCapacity:snapshot.size()];
 		for (const UI::AccessibilityElementInfo &info : snapshot) {
 			NSString *label = [NSString stringWithUTF8String:info.label.c_str()];
 			CGRect frame = [self uiFrameFromDPBounds:info.bounds];
 			CGRect dpFrame = CGRectMake(info.bounds.x, info.bounds.y, info.bounds.w, info.bounds.h);
-			UIAccessibilityTraits traits = TraitsForRole(info.role);
-			if (!info.enabled) {
-				traits |= UIAccessibilityTraitNotEnabled;
-			}
 			PPSSPPAccessibilityElement *element = [self makeElementWithLabel:label
 																		frame:frame
 																	  dpFrame:dpFrame
 																	   action:PPSSPPAccessibilityActionActivateUI
-																	   traits:traits];
-			[_elements addObject:element];
-			[signature appendFormat:@"|%@:%@:%llu", label, NSStringFromCGRect(frame), (unsigned long long)traits];
+																	   traits:TraitsForInfo(info)];
+			element.accessibilityId = info.id;
+			element.accessibilityValue = [NSString stringWithUTF8String:info.value.c_str()];
+			[newElements addObject:element];
 		}
-	}
-	if (![_lastSignature isEqualToString:signature]) {
-		_lastSignature = [signature copy];
+		_elements = newElements;
 		view.accessibilityElements = _elements;
-		UIAccessibilityPostNotification(UIAccessibilityLayoutChangedNotification, nil);
+		if (!screenChanged) {
+			UIAccessibilityPostNotification(UIAccessibilityLayoutChangedNotification, nil);
+		}
 		[self logRefreshWithReason:@"ui" elementCount:_elements.count snapshotVersion:snapshotVersion];
-	} else {
-		_elements = oldElements;
 	}
+	if (screenChanged) {
+		UIAccessibilityPostNotification(UIAccessibilityScreenChangedNotification, [_elements firstObject]);
+	}
+	_lastSignature = nil;
 	_hasBuiltElements = YES;
 	_lastSnapshotVersion = snapshotVersion;
+	_lastScreenVersion = screenVersion;
 	_lastUIState = uiState;
 	_lastViewBounds = viewBounds;
 	_lastDPXRes = g_display.dp_xres;
 	_lastDPYRes = g_display.dp_yres;
+	_lastExternalControllerConnected = externalControllerConnected;
 }
 
 - (void)logRefreshWithReason:(NSString *)reason elementCount:(NSUInteger)elementCount snapshotVersion:(uint64_t)snapshotVersion {
@@ -381,18 +518,7 @@ static UIAccessibilityTraits TraitsForRole(UI::AccessibilityRole role) {
 - (BOOL)activateElement:(PPSSPPAccessibilityElement *)element {
 	switch (element.action) {
 	case PPSSPPAccessibilityActionActivateUI: {
-		const CGFloat x = CGRectGetMidX(element.dpFrame);
-		const CGFloat y = CGRectGetMidY(element.dpFrame);
-		TouchInput down{};
-		down.x = x;
-		down.y = y;
-		down.id = 9;
-		down.flags = TouchInputFlags::DOWN;
-		NativeTouch(down);
-		TouchInput up = down;
-		up.flags = TouchInputFlags::UP;
-		NativeTouch(up);
-		return YES;
+		return UI::PerformAccessibilityClick(element.accessibilityId, false);
 	}
 	case PPSSPPAccessibilityActionShoulders:
 		if (_lastShoulderKey == NKCODE_UNKNOWN) {
@@ -421,7 +547,9 @@ static UIAccessibilityTraits TraitsForRole(UI::AccessibilityRole role) {
 	if (element.action != PPSSPPAccessibilityActionActivateUI) {
 		return;
 	}
-	[self activateElement:element];
+	if (!NativeAccessibilityFocus(element.accessibilityId)) {
+		return;
+	}
 	TapKey(increment ? NKCODE_DPAD_RIGHT : NKCODE_DPAD_LEFT);
 }
 
@@ -453,10 +581,10 @@ static UIAccessibilityTraits TraitsForRole(UI::AccessibilityRole role) {
 		}
 	case PPSSPPAccessibilityActionFaceButtons:
 		switch (direction) {
-		case UIAccessibilityScrollDirectionLeft: TapKey(NKCODE_BUTTON_4, DEVICE_ID_PAD_0); return YES;
-		case UIAccessibilityScrollDirectionRight: TapKey(NKCODE_BUTTON_3, DEVICE_ID_PAD_0); return YES;
-		case UIAccessibilityScrollDirectionUp: TapKey(NKCODE_BUTTON_1, DEVICE_ID_PAD_0); return YES;
-		case UIAccessibilityScrollDirectionDown: TapKey(NKCODE_BUTTON_2, DEVICE_ID_PAD_0); return YES;
+		case UIAccessibilityScrollDirectionLeft: TapAccessibilityFaceButton(direction, NKCODE_BUTTON_4, "Square"); return YES;
+		case UIAccessibilityScrollDirectionRight: TapAccessibilityFaceButton(direction, NKCODE_BUTTON_3, "Circle"); return YES;
+		case UIAccessibilityScrollDirectionUp: TapAccessibilityFaceButton(direction, NKCODE_BUTTON_1, "Triangle"); return YES;
+		case UIAccessibilityScrollDirectionDown: TapAccessibilityFaceButton(direction, NKCODE_BUTTON_2, "Cross"); return YES;
 		default: return NO;
 		}
 	case PPSSPPAccessibilityActionShoulders:

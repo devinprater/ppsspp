@@ -100,6 +100,26 @@ static void DrawIconWithText(UIContext &dc, ImageID image, std::string_view text
 	}
 }
 
+static std::string AccessibilityPathText(std::string_view path) {
+	if (!startsWith(path, "ms:/")) {
+		return std::string(path);
+	}
+
+	auto sy = GetI18NCategory(I18NCat::SYSTEM);
+	std::string label(sy->T("PSP Memory Stick"));
+	const std::string_view relativePath = path.substr(4);
+	if (!relativePath.empty()) {
+		label += ", ";
+		for (size_t i = 0; i < relativePath.size(); ++i) {
+			const char c = relativePath[i];
+			if (c != '/' || i + 1 < relativePath.size()) {
+				label += c == '/' ? ", " : std::string(1, c);
+			}
+		}
+	}
+	return label;
+}
+
 class GameButton : public UI::Clickable {
 public:
 	GameButton(const Path &gamePath, bool gridStyle, UI::LayoutParams *layoutParams = nullptr)
@@ -755,12 +775,14 @@ void GameBrowser::Refresh() {
 		std::string pathStr = GetFriendlyPath(path_.GetPath(), aliasMatch_, aliasDisplay_);
 
 		if (pathOnSeparateLine) {
-			Add(new TextView(pathStr, ALIGN_VCENTER | FLAG_WRAP_TEXT, true, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT, Margins(8, 0, 8, 0))));
+			TextView *pathText = Add(new TextView(pathStr, ALIGN_VCENTER | FLAG_WRAP_TEXT, true, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT, Margins(8, 0, 8, 0))));
+			pathText->SetAccessibilityText(AccessibilityPathText(pathStr));
 		}
 		if (browseFlags_ & BrowseFlags::NAVIGATE) {
 			if (!pathOnSeparateLine) {
 				topBar->Add(new Spacer(2.0f));
-				topBar->Add(new TextView(pathStr, ALIGN_VCENTER | FLAG_WRAP_TEXT, true, new LinearLayoutParams(FILL_PARENT, 64.0f, 1.0f)));
+				TextView *pathText = topBar->Add(new TextView(pathStr, ALIGN_VCENTER | FLAG_WRAP_TEXT, true, new LinearLayoutParams(FILL_PARENT, 64.0f, 1.0f)));
+				pathText->SetAccessibilityText(AccessibilityPathText(pathStr));
 			}
 			topBar->Add(new Choice(ImageID("I_HOME"), new LayoutParams(WRAP_CONTENT, 64.0f)))->OnClick.Handle(this, &GameBrowser::OnHomeClick);
 			if (System_GetPropertyBool(SYSPROP_HAS_ADDITIONAL_STORAGE)) {
@@ -898,8 +920,9 @@ void GameBrowser::Refresh() {
 
 	if (browseFlags_ & BrowseFlags::NAVIGATE) {
 		if (path_.CanNavigateUp()) {
-			gameList_->Add(new DirButton(Path(".."), *gridStyle_, new UI::LinearLayoutParams(UI::FILL_PARENT, UI::FILL_PARENT)))->
-				OnClick.Handle(this, &GameBrowser::NavigateClick);
+			DirButton *upButton = gameList_->Add(new DirButton(Path(".."), *gridStyle_, new UI::LinearLayoutParams(UI::FILL_PARENT, UI::FILL_PARENT)));
+			upButton->SetAccessibilityText(mm->T("NavigateUp", "Up one level"));
+			upButton->OnClick.Handle(this, &GameBrowser::NavigateClick);
 		}
 
 		// Add any pinned paths before other directories.
@@ -939,6 +962,7 @@ void GameBrowser::Refresh() {
 		UI::Button *pinButton = gameList_->Add(new Button(caption, new UI::LinearLayoutParams(UI::FILL_PARENT, UI::FILL_PARENT)));
 		pinButton->OnClick.Handle(this, &GameBrowser::PinToggleClick);
 		pinButton->SetImageID(ImageID(IsCurrentPathPinned() ? "I_UNPIN" : "I_PIN"));
+		pinButton->SetAccessibilityText(IsCurrentPathPinned() ? mm->T("UnpinCurrentFolder", "Unpin this folder") : mm->T("PinCurrentFolder", "Pin this folder"));
 	}
 
 	if (path_.GetPath().empty()) {

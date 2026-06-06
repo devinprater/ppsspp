@@ -77,7 +77,7 @@ public:
 	ChoiceStrip(Orientation orientation, LayoutParams *layoutParams = 0);
 
 	void AddChoice(std::string_view title, ImageID imageId = ImageID::invalid());
-	void AddChoice(ImageID buttonImage);
+	void AddChoice(ImageID buttonImage, std::string_view accessibilityText = "");
 
 	int GetSelection() const { return selected_; }
 	void SetSelection(int sel, bool triggerClick);

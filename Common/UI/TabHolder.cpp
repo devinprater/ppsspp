@@ -75,7 +75,7 @@ void TabHolder::AddBack(UIScreen *parent) {
 void TabHolder::AddTabContents(std::string_view title, ImageID imageId, ViewGroup *tabContents) {
 	tabs_.push_back(tabContents);
 	if (tabOrientation_ == ORIENT_HORIZONTAL && (flags_ & TabHolderFlags::HorizontalOnlyIcons) && imageId.isValid()) {
-		tabStrip_->AddChoice(imageId);
+		tabStrip_->AddChoice(imageId, title);
 	} else if (tabOrientation_ == ORIENT_VERTICAL && (flags_ & TabHolderFlags::VerticalShowIcons) && imageId.isValid()) {
 		tabStrip_->AddChoice(title, imageId);
 	} else {
@@ -95,7 +95,7 @@ void TabHolder::AddTabContents(std::string_view title, ImageID imageId, ViewGrou
 void TabHolder::AddTabDeferred(std::string_view title, ImageID imageId, std::function<ViewGroup *()> createCb) {
 	tabs_.push_back(nullptr);  // marker
 	if (tabOrientation_ == ORIENT_HORIZONTAL && (flags_ & TabHolderFlags::HorizontalOnlyIcons) && imageId.isValid()) {
-		tabStrip_->AddChoice(imageId);
+		tabStrip_->AddChoice(imageId, title);
 	} else if (tabOrientation_ == ORIENT_VERTICAL && (flags_ & TabHolderFlags::VerticalShowIcons) && imageId.isValid()) {
 		tabStrip_->AddChoice(title, imageId);
 	} else {
@@ -283,11 +283,12 @@ void ChoiceStrip::AddChoice(std::string_view title, ImageID imageId) {
 		c->Press();
 }
 
-void ChoiceStrip::AddChoice(ImageID buttonImage) {
+void ChoiceStrip::AddChoice(ImageID buttonImage, std::string_view accessibilityText) {
 	StickyChoice *c = new StickyChoice(buttonImage,
 		orientation_ == ORIENT_HORIZONTAL ?
 		nullptr :
 		new LinearLayoutParams(FILL_PARENT, ITEM_HEIGHT));
+	c->SetAccessibilityText(accessibilityText);
 	c->SetAccessibilityTab(topTabs_);
 	c->OnClick.Handle(this, &ChoiceStrip::OnChoiceClick);
 	Add(c);

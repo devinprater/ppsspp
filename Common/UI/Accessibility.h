@@ -28,6 +28,7 @@ enum class AccessibilityRole {
 struct AccessibilityElementInfo {
 	int id = -1;
 	std::string label;
+	std::string value;
 	Bounds bounds;
 	AccessibilityRole role = AccessibilityRole::StaticText;
 	bool enabled = true;
@@ -43,6 +44,7 @@ std::vector<AccessibilityElementInfo> BuildAccessibilitySnapshot(ScreenManager *
 void UpdateCachedAccessibilitySnapshot(ScreenManager *screenManager);
 std::vector<AccessibilityElementInfo> GetCachedAccessibilitySnapshot();
 uint64_t GetCachedAccessibilitySnapshotVersion();
+uint64_t GetCachedAccessibilityScreenVersion();
 void ClearCachedAccessibilitySnapshot();
 void SetAccessibilityEnabled(bool enabled);
 bool IsAccessibilityEnabled();

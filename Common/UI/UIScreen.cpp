@@ -399,15 +399,19 @@ void UIScreen::GetAccessibilityElements(std::vector<UI::AccessibilityElementInfo
 				return;
 			}
 			UI::RadioButton *radio = dynamic_cast<UI::RadioButton *>(view);
+			UI::Button *button = dynamic_cast<UI::Button *>(view);
 			UI::Choice *choice = dynamic_cast<UI::Choice *>(view);
 			UI::CheckBox *checkbox = dynamic_cast<UI::CheckBox *>(view);
 			UI::ItemHeader *itemHeader = dynamic_cast<UI::ItemHeader *>(view);
 			UI::PopupHeader *popupHeader = dynamic_cast<UI::PopupHeader *>(view);
+			UI::TextEdit *textEdit = dynamic_cast<UI::TextEdit *>(view);
 			std::string label = TrimAccessibilityLabel(radio ? std::string(radio->Text()) :
+				button ? button->AccessibilityText() :
 				checkbox ? checkbox->AccessibilityText() :
 				itemHeader ? std::string(itemHeader->Text()) :
 				popupHeader ? std::string(popupHeader->Text()) :
-				choice ? std::string(choice->Text()) : view->DescribeText());
+				textEdit ? textEdit->AccessibilityText() :
+				choice ? choice->AccessibilityText() : view->DescribeText());
 			if (!IsUsefulAccessibilityLabel(label)) {
 				return;
 			}
@@ -415,6 +419,11 @@ void UIScreen::GetAccessibilityElements(std::vector<UI::AccessibilityElementInfo
 			UI::AccessibilityElementInfo info;
 			info.id = nextId++;
 			info.label = label;
+			if (textEdit) {
+				info.value = textEdit->GetText();
+			} else if (role == UI::AccessibilityRole::Slider || role == UI::AccessibilityRole::Progress) {
+				info.value = view->DescribeText();
+			}
 			info.bounds = bounds;
 			info.role = role;
 			info.enabled = view->IsEnabled();
@@ -459,15 +468,19 @@ bool UIScreen::FocusAccessibilityElement(int id) {
 		}
 		const UI::AccessibilityRole role = AccessibilityRoleForView(view);
 		UI::RadioButton *radio = dynamic_cast<UI::RadioButton *>(view);
+		UI::Button *button = dynamic_cast<UI::Button *>(view);
 		UI::Choice *choice = dynamic_cast<UI::Choice *>(view);
 		UI::CheckBox *checkbox = dynamic_cast<UI::CheckBox *>(view);
 		UI::ItemHeader *itemHeader = dynamic_cast<UI::ItemHeader *>(view);
 		UI::PopupHeader *popupHeader = dynamic_cast<UI::PopupHeader *>(view);
+		UI::TextEdit *textEdit = dynamic_cast<UI::TextEdit *>(view);
 		const std::string label = TrimAccessibilityLabel(radio ? std::string(radio->Text()) :
+			button ? button->AccessibilityText() :
 			checkbox ? checkbox->AccessibilityText() :
 			itemHeader ? std::string(itemHeader->Text()) :
 			popupHeader ? std::string(popupHeader->Text()) :
-			choice ? std::string(choice->Text()) : view->DescribeText());
+			textEdit ? textEdit->AccessibilityText() :
+			choice ? choice->AccessibilityText() : view->DescribeText());
 		if (!ShouldIncludeAccessibilityView(role) || !IsUsefulAccessibilityLabel(label)) {
 			return;
 		}
@@ -502,15 +515,19 @@ bool UIScreen::ActivateAccessibilityElement(int id) {
 		}
 		const UI::AccessibilityRole role = AccessibilityRoleForView(view);
 		UI::RadioButton *radio = dynamic_cast<UI::RadioButton *>(view);
+		UI::Button *button = dynamic_cast<UI::Button *>(view);
 		UI::Choice *choice = dynamic_cast<UI::Choice *>(view);
 		UI::CheckBox *checkbox = dynamic_cast<UI::CheckBox *>(view);
 		UI::ItemHeader *itemHeader = dynamic_cast<UI::ItemHeader *>(view);
 		UI::PopupHeader *popupHeader = dynamic_cast<UI::PopupHeader *>(view);
+		UI::TextEdit *textEdit = dynamic_cast<UI::TextEdit *>(view);
 		const std::string label = TrimAccessibilityLabel(radio ? std::string(radio->Text()) :
+			button ? button->AccessibilityText() :
 			checkbox ? checkbox->AccessibilityText() :
 			itemHeader ? std::string(itemHeader->Text()) :
 			popupHeader ? std::string(popupHeader->Text()) :
-			choice ? std::string(choice->Text()) : view->DescribeText());
+			textEdit ? textEdit->AccessibilityText() :
+			choice ? choice->AccessibilityText() : view->DescribeText());
 		if (!ShouldIncludeAccessibilityView(role) || !IsUsefulAccessibilityLabel(label)) {
 			return;
 		}

@@ -17,6 +17,8 @@ static std::mutex g_accessibilitySnapshotLock;
 static std::mutex g_accessibilityInputLock;
 static std::vector<AccessibilityElementInfo> g_accessibilitySnapshot;
 static uint64_t g_accessibilitySnapshotVersion;
+static uintptr_t g_accessibilitySnapshotScreen;
+static uint64_t g_accessibilityScreenVersion;
 static bool g_accessibilityEnabled;
 static std::map<int, int> g_heldAccessibilityPointers;
 
@@ -33,7 +35,7 @@ static bool AccessibilitySnapshotsEqual(const std::vector<AccessibilityElementIn
 		return false;
 	}
 	for (size_t i = 0; i < a.size(); ++i) {
-		if (a[i].id != b[i].id || a[i].label != b[i].label || !BoundsEqual(a[i].bounds, b[i].bounds) ||
+		if (a[i].id != b[i].id || a[i].label != b[i].label || a[i].value != b[i].value || !BoundsEqual(a[i].bounds, b[i].bounds) ||
 			a[i].role != b[i].role || a[i].enabled != b[i].enabled || a[i].checked != b[i].checked || a[i].selected != b[i].selected ||
 			a[i].clickable != b[i].clickable || a[i].longClickable != b[i].longClickable ||
 			a[i].touchX != b[i].touchX || a[i].touchY != b[i].touchY) {
@@ -61,6 +63,7 @@ std::vector<AccessibilityElementInfo> BuildAccessibilitySnapshot(ScreenManager *
 
 void UpdateCachedAccessibilitySnapshot(ScreenManager *screenManager) {
 	std::vector<AccessibilityElementInfo> snapshot;
+	const uintptr_t snapshotScreen = screenManager ? reinterpret_cast<uintptr_t>(screenManager->topScreen()) : 0;
 	try {
 		snapshot = BuildAccessibilitySnapshot(screenManager);
 	} catch (const std::exception &e) {
@@ -71,6 +74,10 @@ void UpdateCachedAccessibilitySnapshot(ScreenManager *screenManager) {
 	bool releaseInputs = false;
 	{
 		std::lock_guard<std::mutex> guard(g_accessibilitySnapshotLock);
+		if (g_accessibilitySnapshotScreen != snapshotScreen) {
+			g_accessibilitySnapshotScreen = snapshotScreen;
+			++g_accessibilityScreenVersion;
+		}
 		if (!AccessibilitySnapshotsEqual(g_accessibilitySnapshot, snapshot)) {
 			const bool hadGamepadControls = std::any_of(g_accessibilitySnapshot.begin(), g_accessibilitySnapshot.end(), [](const AccessibilityElementInfo &info) {
 				return info.role == AccessibilityRole::GamepadControl;
@@ -98,6 +105,11 @@ std::vector<AccessibilityElementInfo> GetCachedAccessibilitySnapshot() {
 uint64_t GetCachedAccessibilitySnapshotVersion() {
 	std::lock_guard<std::mutex> guard(g_accessibilitySnapshotLock);
 	return g_accessibilitySnapshotVersion;
+}
+
+uint64_t GetCachedAccessibilityScreenVersion() {
+	std::lock_guard<std::mutex> guard(g_accessibilitySnapshotLock);
+	return g_accessibilityScreenVersion;
 }
 
 void ClearCachedAccessibilitySnapshot() {

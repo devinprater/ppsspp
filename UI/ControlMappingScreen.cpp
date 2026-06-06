@@ -146,6 +146,7 @@ void SingleControlMapper::Refresh() {
 	if (mappings.empty()) {
 		// look like an empty line
 		Choice *c = rightColumn->Add(new Choice("", new LinearLayoutParams(FILL_PARENT, itemH)));
+		c->SetAccessibilityText("Add mapping");
 		c->OnClick.Handle(this, &SingleControlMapper::OnAdd);
 	}
 }

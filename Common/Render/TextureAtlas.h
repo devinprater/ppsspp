@@ -38,6 +38,10 @@ public:
 		return id.empty();
 	}
 
+	std::string_view ToString() const {
+		return id;
+	}
+
 	bool operator ==(const ImageID &other) {
 		return id == other.id;
 	}

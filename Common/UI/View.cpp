@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cctype>
 #include <mutex>
 
 #include "Common/Input/InputState.h"
@@ -23,6 +24,39 @@ namespace UI {
 
 static constexpr float MIN_TEXT_SCALE = 0.8f;
 static constexpr float MAX_ITEM_SIZE = 65535.0f;
+
+static std::string AccessibilityTextForImage(ImageID image) {
+	const std::string_view imageName = image.ToString();
+	if (imageName == "I_NAVIGATE_BACK") return "Back";
+	if (imageName == "I_THREE_DOTS") return "More options";
+	if (imageName == "I_TRASHCAN") return "Delete";
+	if (imageName == "I_CROSS") return "Close";
+	if (imageName == "I_FOLDER_OPEN") return "Browse";
+	if (imageName == "I_FOLDER_UPLOAD") return "Upload";
+	if (imageName == "I_FILE_COPY") return "Copy";
+	if (imageName == "I_GEAR") return "Settings";
+	if (imageName == "I_HOME") return "Home";
+	if (imageName == "I_INFO") return "Information";
+	if (imageName == "I_SEND") return "Send";
+	if (imageName == "I_SEARCH") return "Search";
+	if (imageName == "I_FULLSCREEN") return "Enter full screen";
+	if (imageName == "I_RESTORE") return "Exit full screen";
+	if (imageName == "I_ARROW_LEFT") return "Previous";
+	if (imageName == "I_ARROW_RIGHT") return "Next";
+
+	std::string label(imageName);
+	if (label.compare(0, 2, "I_") == 0) {
+		label.erase(0, 2);
+	}
+	for (char &c : label) {
+		if (c == '_') {
+			c = ' ';
+		} else {
+			c = (char)std::tolower((unsigned char)c);
+		}
+	}
+	return label;
+}
 
 void MeasureBySpec(Size sz, float contentDim, MeasureSpec spec, float *measured) {
 	if (sz == WRAP_CONTENT) {
@@ -550,7 +584,18 @@ void Choice::Draw(UIContext &dc) {
 
 std::string Choice::DescribeText() const {
 	auto u = GetI18NCategory(I18NCat::UI_ELEMENTS);
-	return ApplySafeSubstitutions(u->T("%1 choice"), text_);
+	return ApplySafeSubstitutions(u->T("%1 choice"), AccessibilityText());
+}
+
+std::string Choice::AccessibilityText() const {
+	if (!accessibilityText_.empty()) {
+		return accessibilityText_;
+	}
+	if (!text_.empty()) {
+		return text_;
+	}
+
+	return AccessibilityTextForImage(image_);
 }
 
 InfoItem::InfoItem(std::string_view text, std::string_view rightText, LayoutParams *layoutParams)
@@ -921,7 +966,17 @@ void Button::GetContentDimensions(const UIContext &dc, float &w, float &h) const
 
 std::string Button::DescribeText() const {
 	auto u = GetI18NCategory(I18NCat::UI_ELEMENTS);
-	return ApplySafeSubstitutions(u->T("%1 button"), GetText());
+	return ApplySafeSubstitutions(u->T("%1 button"), AccessibilityText());
+}
+
+std::string Button::AccessibilityText() const {
+	if (!accessibilityText_.empty()) {
+		return accessibilityText_;
+	}
+	if (!text_.empty()) {
+		return text_;
+	}
+	return AccessibilityTextForImage(imageFunc_ ? imageFunc_() : imageID_);
 }
 
 void Button::ClickInternal() {
@@ -1345,6 +1400,13 @@ void TextEdit::GetContentDimensions(const UIContext &dc, float &w, float &h) con
 std::string TextEdit::DescribeText() const {
 	auto u = GetI18NCategory(I18NCat::UI_ELEMENTS);
 	return ApplySafeSubstitutions(u->T("%1 text field"), GetText());
+}
+
+std::string TextEdit::AccessibilityText() const {
+	if (!title_.empty()) {
+		return title_;
+	}
+	return placeholderText_;
 }
 
 // Handles both windows and unix line endings.

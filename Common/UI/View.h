@@ -584,6 +584,8 @@ public:
 	void GetContentDimensions(const UIContext &dc, float &w, float &h) const override;
 	std::string_view GetText() const { return text_; }
 	std::string DescribeText() const override;
+	void SetAccessibilityText(std::string_view text) { accessibilityText_ = text; }
+	std::string AccessibilityText() const;
 	void SetPadding(int w, int h) {
 		paddingW_ = w;
 		paddingH_ = h;
@@ -605,6 +607,7 @@ private:
 	void ClickInternal() override;
 	Style style_;
 	std::string text_;
+	std::string accessibilityText_;
 	ImageID imageID_;
 	std::function<ImageID()> imageFunc_{};
 	int paddingW_ = 16;
@@ -792,6 +795,10 @@ public:
 	std::string_view Text() const {
 		return text_;
 	}
+	void SetAccessibilityText(std::string_view text) {
+		accessibilityText_ = text;
+	}
+	std::string AccessibilityText() const;
 	void SetIconOnly(bool iconOnly) {
 		iconOnly_ = iconOnly;
 	}
@@ -806,6 +813,7 @@ protected:
 
 	std::string text_;
 	std::string smallText_;
+	std::string accessibilityText_;
 	ImageID image_;  // Centered if no text, on the left if text.
 	ImageID rightIconImage_ = ImageID::invalid();  // Shows in the right.
 	float rightIconScale_ = 0.0f;
@@ -1113,7 +1121,8 @@ public:
 
 	void SetText(std::string_view text) { text_ = text; }
 	const std::string &GetText() const { return text_; }
-	std::string DescribeText() const override { return GetText(); }
+	void SetAccessibilityText(std::string_view text) { accessibilityText_ = text; }
+	std::string DescribeText() const override { return accessibilityText_.empty() ? GetText() : accessibilityText_; }
 	void SetSmall(bool small) { textSize_ = TextSize::Small; }
 	void SetBig(bool big) { textSize_ = TextSize::Big; }
 	TextView *SetTextSize(TextSize size) { textSize_ = size; return this; }
@@ -1130,6 +1139,7 @@ public:
 
 private:
 	std::string text_;
+	std::string accessibilityText_;
 	int textAlign_;
 	uint32_t textColor_;
 	bool hasTextColor_ = false;
@@ -1162,6 +1172,7 @@ public:
 	void SetText(std::string_view text) { text_ = text; scrollPos_ = 0; caret_ = (int)text_.size(); }
 	void SetTextColor(uint32_t color) { textColor_ = color; hasTextColor_ = true; }
 	const std::string &GetText() const { return text_; }
+	std::string AccessibilityText() const;
 	void SetMaxLen(size_t maxLen) { maxLen_ = maxLen; }
 	void SetTextAlign(int align) { align_ = align; }  // Only really useful for setting FLAG_DYNAMIC_ASCII
 	void SetPasswordMasking(bool masking) {

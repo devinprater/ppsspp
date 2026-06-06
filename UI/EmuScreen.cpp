@@ -1371,15 +1371,6 @@ void EmuScreen::CreateViews() {
 
 void EmuScreen::GetAccessibilityElements(std::vector<UI::AccessibilityElementInfo> &elements) {
 	UIScreen::GetAccessibilityElements(elements);
-	if (GetUIState() != UISTATE_INGAME || !screenManager() || !screenManager()->getUIContext()) {
-		return;
-	}
-	UI::AccessibilityElementInfo viewport;
-	viewport.id = 90000;
-	viewport.label = "Game view";
-	viewport.bounds = GetLayoutBounds(*screenManager()->getUIContext());
-	viewport.role = UI::AccessibilityRole::Image;
-	elements.insert(elements.begin(), std::move(viewport));
 }
 
 void EmuScreen::deviceLost() {
