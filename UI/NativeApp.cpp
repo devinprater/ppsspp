@@ -1090,10 +1090,22 @@ void NativeFrame(GraphicsContext *graphicsContext) {
 	ScreenRenderFlags renderFlags = g_screenManager->render();
 #if PPSSPP_PLATFORM(IOS) || PPSSPP_PLATFORM(ANDROID)
 	static double lastAccessibilitySnapshotTime = 0.0;
-	const double accessibilitySnapshotInterval = PPSSPP_PLATFORM(IOS) ? 0.05 : 0.5;
-	if (UI::IsAccessibilityEnabled() && startTime - lastAccessibilitySnapshotTime >= accessibilitySnapshotInterval) {
-		UI::UpdateCachedAccessibilitySnapshot(g_screenManager);
-		lastAccessibilitySnapshotTime = startTime;
+	static int lastAccessibilityUIState = -1;
+	if (UI::IsAccessibilityEnabled()) {
+		const int accessibilityUIState = GetUIState();
+#if PPSSPP_PLATFORM(IOS)
+		const double accessibilitySnapshotInterval = 0.5;
+		const bool shouldUpdateAccessibilitySnapshot = accessibilityUIState != UISTATE_INGAME &&
+			(accessibilityUIState != lastAccessibilityUIState || startTime - lastAccessibilitySnapshotTime >= accessibilitySnapshotInterval);
+#else
+		const double accessibilitySnapshotInterval = 0.5;
+		const bool shouldUpdateAccessibilitySnapshot = startTime - lastAccessibilitySnapshotTime >= accessibilitySnapshotInterval;
+#endif
+		if (shouldUpdateAccessibilitySnapshot) {
+			UI::UpdateCachedAccessibilitySnapshot(g_screenManager);
+			lastAccessibilitySnapshotTime = startTime;
+		}
+		lastAccessibilityUIState = accessibilityUIState;
 	}
 #endif
 	if (g_screenManager->getUIContext()->Text()) {

@@ -48,15 +48,11 @@ typedef NS_ENUM(NSInteger, PPSSPPAccessibilityAction) {
 	InputKeyCode _heldShoulderKey;
 	BOOL _refreshQueued;
 	BOOL _hasBuiltElements;
-	BOOL _gameViewportFocused;
 	BOOL _lastExternalControllerConnected;
-	NSTimeInterval _lastGameViewportDescriptionRefresh;
 }
 - (BOOL)activateElement:(PPSSPPAccessibilityElement *)element;
 - (BOOL)scrollElement:(PPSSPPAccessibilityElement *)element direction:(UIAccessibilityScrollDirection)direction;
 - (void)adjustElement:(PPSSPPAccessibilityElement *)element increment:(BOOL)increment;
-- (void)gameViewportFocusChanged:(BOOL)focused;
-- (void)refreshFocusedGameViewportDescription;
 - (void)logRefreshWithReason:(NSString *)reason elementCount:(NSUInteger)elementCount snapshotVersion:(uint64_t)snapshotVersion;
 @end
 
@@ -76,18 +72,6 @@ typedef NS_ENUM(NSInteger, PPSSPPAccessibilityAction) {
 
 - (void)accessibilityDecrement {
 	[self.bridge adjustElement:self increment:NO];
-}
-
-- (void)accessibilityElementDidBecomeFocused {
-	if (self.action == PPSSPPAccessibilityActionNone) {
-		[self.bridge gameViewportFocusChanged:YES];
-	}
-}
-
-- (void)accessibilityElementDidLoseFocus {
-	if (self.action == PPSSPPAccessibilityActionNone) {
-		[self.bridge gameViewportFocusChanged:NO];
-	}
 }
 
 @end
@@ -199,14 +183,12 @@ static BOOL HasExternalGameController() {
 		_lastDPYRes = 0.0f;
 		_lastShoulderKey = NKCODE_UNKNOWN;
 		_heldShoulderKey = NKCODE_UNKNOWN;
-		_gameViewportFocused = NO;
 		_lastExternalControllerConnected = NO;
-		_lastGameViewportDescriptionRefresh = 0.0;
 		view.isAccessibilityElement = NO;
 		view.accessibilityElements = _elements;
 		UI::SetAccessibilityEnabled(UIAccessibilityIsVoiceOverRunning());
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(voiceOverStatusChanged:) name:UIAccessibilityVoiceOverStatusDidChangeNotification object:nil];
-		_refreshTimer = [NSTimer timerWithTimeInterval:0.05 target:self selector:@selector(periodicRefresh:) userInfo:nil repeats:YES];
+		_refreshTimer = [NSTimer timerWithTimeInterval:0.25 target:self selector:@selector(periodicRefresh:) userInfo:nil repeats:YES];
 		[[NSRunLoop mainRunLoop] addTimer:_refreshTimer forMode:NSRunLoopCommonModes];
 	}
 	return self;
@@ -227,7 +209,6 @@ static BOOL HasExternalGameController() {
 - (void)periodicRefresh:(NSTimer *)timer {
 	if (UIAccessibilityIsVoiceOverRunning()) {
 		[self scheduleRefresh];
-		[self refreshFocusedGameViewportDescription];
 	}
 }
 
@@ -325,34 +306,10 @@ static BOOL HasExternalGameController() {
 																frame:[self uiFrameFromDPBounds:viewportBounds]
 															  dpFrame:viewportFrame
 															   action:PPSSPPAccessibilityActionNone
-															   traits:UIAccessibilityTraitImage | UIAccessibilityTraitUpdatesFrequently];
+															   traits:UIAccessibilityTraitImage];
 	[_elements addObject:viewport];
 	NSLog(@"PPSSPPAccessibility ingame externalController=%d viewport=%@ elements=%lu",
 		externalControllerConnected, NSStringFromCGRect(viewportFrame), (unsigned long)_elements.count);
-}
-
-- (void)gameViewportFocusChanged:(BOOL)focused {
-	_gameViewportFocused = focused;
-	if (focused) {
-		_lastGameViewportDescriptionRefresh = 0.0;
-	}
-}
-
-- (void)refreshFocusedGameViewportDescription {
-	if (!_gameViewportFocused || GetUIState() != UISTATE_INGAME) {
-		return;
-	}
-	const NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
-	if (now - _lastGameViewportDescriptionRefresh < 3.0) {
-		return;
-	}
-	for (PPSSPPAccessibilityElement *element in _elements) {
-		if (element.action == PPSSPPAccessibilityActionNone) {
-			_lastGameViewportDescriptionRefresh = now;
-			UIAccessibilityPostNotification(UIAccessibilityLayoutChangedNotification, element);
-			return;
-		}
-	}
 }
 
 - (void)refresh {
@@ -381,7 +338,6 @@ static BOOL HasExternalGameController() {
 		NSMutableArray *newElements = [[NSMutableArray alloc] init];
 		NSMutableString *signature = [[NSMutableString alloc] init];
 		NSMutableArray *oldElements = _elements;
-		_gameViewportFocused = NO;
 		_elements = newElements;
 		[self addInGameControls];
 		[signature appendString:@"ingame"];
